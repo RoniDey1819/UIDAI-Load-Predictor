@@ -1,7 +1,6 @@
 pandas
 numpy
 matplotlib
-seaborn
 statsmodels
 scikit-learn
-ipykernel
+python-dateutil
