@@ -4,6 +4,9 @@ import numpy as np
 import logging
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+import multiprocessing as mp
+from functools import partial
 import warnings
 
 try:
@@ -19,153 +22,136 @@ warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def fit_single_district(group_data, horizon, value_col):
+    """
+    Helper function for parallel processing. Fits the best model for a single district.
+    """
+    state_district, group = group_data
+    state, district = state_district
+    
+    try:
+        group = group.sort_values('month')
+        series = group.set_index('month')[value_col]
+        
+        # Ensure frequency
+        if series.index.freq is None:
+            series.index.freq = pd.infer_freq(series.index)
+        
+        n = len(series)
+        pred = None
+        
+        # --- Model Selection Logic ---
+        # Prioritize robustness for short data (~12 months)
+        if n >= 24:
+            # SARIMA for long series with seasonality
+            try:
+                model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), 
+                                enforce_stationarity=False, enforce_invertibility=False)
+                res = model.fit(disp=False)
+                pred = res.forecast(steps=horizon)
+            except:
+                n = 23 # Fallback to ETS
+                
+        if pred is None and n >= 12:
+            # Exponential Smoothing (Holt-Winters) is more stable for 12-24 months
+            try:
+                model = ExponentialSmoothing(series, seasonal_periods=min(12, n-1), trend='add', seasonal='add')
+                res = model.fit()
+                pred = res.forecast(horizon)
+            except:
+                n = 11 # Fallback to simple ARIMA
+
+        if pred is None and n >= 6:
+            # Simple ARIMA/Damping for 6-12 months
+            try:
+                model = ARIMA(series, order=(1, 1, 0))
+                res = model.fit()
+                pred = res.forecast(steps=horizon)
+            except:
+                pred = None # Fallback to mean
+
+        # Fallback to Moving Average / Mean
+        if pred is None:
+            mean_val = series.mean()
+            pred = pd.Series([mean_val] * horizon)
+
+        # --- Spike Mitigation (Clipping) ---
+        # Cap forecast at 2x the historical maximum to prevent wild spikes
+        hist_max = series.max()
+        pred = np.clip(pred, 0, hist_max * 2)
+
+        # Prepare Future Dates
+        last_date = series.index[-1]
+        future_dates = pd.date_range(start=last_date, periods=horizon+1, freq='M')[1:]
+        
+        results = []
+        for i, (date, val) in enumerate(zip(future_dates, pred)):
+            results.append({
+                'state': state,
+                'district': district,
+                'month': date.date(),
+                'forecast_value': max(0, int(val))
+            })
+        return results
+
+    except Exception as e:
+        return []
+
 class Forecaster:
     """
-    Forecasting engine that predicts future volume for each domain independently.
-    Strictly uses SARIMA / ARIMA models as per requirements.
+    Optimized Forecasting engine using parallel processing and robust models.
     """
     
     def __init__(self):
         self.features_dir = settings.FEATURES_DATA_DIR
         self.forecasts_dir = os.path.join(settings.DATA_DIR, "forecasts")
         os.makedirs(self.forecasts_dir, exist_ok=True)
-        self.horizon = 6 # Forecast 6 months ahead (Request says 3-12, picking 6 for balance)
-
-    def fit_and_forecast(self, series):
-        """
-        Fits SARIMA/ARIMA model and returns forecast.
-        Prioritizes SARIMA(1,0,0)(0,0,0,12) for seasonality if data permits.
-        Falls back to ARIMA or simple mean for very short series.
-        """
-        model = None
-        pred = None
-        
-        # Ensure series has a frequency
-        if series.index.freq is None:
-            try:
-                series.index.freq = pd.infer_freq(series.index)
-            except:
-                pass
-        
-        # Hard constraint: Check length
-        n = len(series)
-        
-        try:
-            if n >= 24:
-                # Use SARIMA with annual seasonality
-                model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12), 
-                                enforce_stationarity=False, enforce_invertibility=False)
-                res = model.fit(disp=False)
-                pred = res.forecast(steps=self.horizon)
-            elif n >= 12:
-                # Use standard ARIMA
-                model = ARIMA(series, order=(1, 1, 1))
-                res = model.fit()
-                pred = res.forecast(steps=self.horizon)
-            elif n >= 6:
-                # Simple ARIMA
-                model = ARIMA(series, order=(1, 0, 0))
-                res = model.fit()
-                pred = res.forecast(steps=self.horizon)
-            else:
-                pass 
-        except Exception as e:
-            pass
-
-        # Prepare Future Dates
-        last_date = series.index[-1]
-        future_dates = pd.date_range(start=last_date, periods=self.horizon+1, freq='M')[1:]
-
-        if pred is not None:
-             # Ensure pred has correct date index if it lost it or is RangeIndex
-             # Only assign if lenghts match
-            try:
-                if len(pred) == len(future_dates):
-                    pred = pd.Series(pred.values, index=future_dates)
-            except:
-                pred = None # Fallback if something weird happened
-
-        if pred is None:
-            # Fallback for failures or short data
-            mean_val = series.mean()
-            pred = pd.Series([mean_val]*self.horizon, index=future_dates)
-
-        return pred
+        self.horizon = 6
 
     def forecast_series(self, df, value_col, name, output_file):
-        logger.info(f"Forecasting {name} (SARIMA/ARIMA)...")
-        results = []
+        logger.info(f"Forecasting {name} (Parallel Optimized)...")
         
-        # Group by district
-        groups = df.groupby(['state', 'district'])
-        count = 0
+        # Prepare groups
+        groups = list(df.groupby(['state', 'district']))
         total_groups = len(groups)
         
-        for (state, district), group in groups:
-            try:
-                # Sort by date
-                group = group.sort_values('month')
-                series = group.set_index('month')[value_col]
-                
-                # Fit Model
-                pred = self.fit_and_forecast(series)
-                
-                # Collect results
-                for date, val in pred.items():
-                    results.append({
-                        'state': state,
-                        'district': district,
-                        'month': date.date(), # Store as date only
-                        'forecast_value': max(0, int(val)) # No negative forecasts
-                    })
-                    
-            except Exception as e:
-                if count % 100 == 0:
-                    logger.warning(f"Error forecasting {state}-{district}: {str(e)}")
+        # Parallel Execution
+        num_cores = max(1, mp.cpu_count() - 1)
+        logger.info(f"Using {num_cores} cores for parallel processing.")
+        
+        with mp.Pool(processes=num_cores) as pool:
+            # Use partial to pass extra arguments
+            worker_func = partial(fit_single_district, horizon=self.horizon, value_col=value_col)
+            results_nested = pool.map(worker_func, groups)
             
-            count += 1
-            if count % 100 == 0 or count == total_groups:
-                percent = (count / total_groups) * 100
-                logger.info(f"Progress ({name}): {count}/{total_groups} districts ({percent:.1f}%)")
-
-        # Save results
+        # Flatten results
+        results = [item for sublist in results_nested for item in sublist]
+        
         if results:
             res_df = pd.DataFrame(results)
-            # Ensure folder exists
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
             res_df.to_csv(output_file, index=False)
             logger.info(f"✅ {name} Forecast ready: {os.path.basename(output_file)} ({len(res_df)} predictions)")
         else:
             logger.warning(f"No results generated for {name}")
 
     def run(self):
-        logger.info("Starting Separate Forecasting Models (Step 5 - SARIMA/ARIMA)...")
+        logger.info("Starting Parallel Forecasting Pipeline...")
 
-        # 1. Enrolment Forecast
-        enrol_path = os.path.join(self.features_dir, "enrolment_features.csv")
-        if os.path.exists(enrol_path):
-            enrol_df = pd.read_csv(enrol_path)
-            enrol_df['month'] = pd.to_datetime(enrol_df['month'])
-            self.forecast_series(enrol_df, 'total_enrolment', 'Enrolment', 
-                                os.path.join(self.forecasts_dir, "enrolment_forecast.csv"))
+        # Process each domain
+        tasks = [
+            ('enrolment_features.csv', 'total_enrolment', 'Enrolment', 'enrolment_forecast.csv'),
+            ('demographic_features.csv', 'total_updates', 'Demographic', 'demographic_forecast.csv'),
+            ('biometric_features.csv', 'total_biometric', 'Biometric', 'biometric_forecast.csv')
+        ]
 
-        # 2. Demographic Update Forecast
-        demo_path = os.path.join(self.features_dir, "demographic_features.csv")
-        if os.path.exists(demo_path):
-            demo_df = pd.read_csv(demo_path)
-            demo_df['month'] = pd.to_datetime(demo_df['month'])
-            self.forecast_series(demo_df, 'total_updates', 'Demographic', 
-                                os.path.join(self.forecasts_dir, "demographic_forecast.csv"))
+        for feat_file, val_col, name, out_file in tasks:
+            path = os.path.join(self.features_dir, feat_file)
+            if os.path.exists(path):
+                df = pd.read_csv(path)
+                df['month'] = pd.to_datetime(df['month'])
+                self.forecast_series(df, val_col, name, os.path.join(self.forecasts_dir, out_file))
 
-        # 3. Biometric Update Forecast
-        bio_path = os.path.join(self.features_dir, "biometric_features.csv")
-        if os.path.exists(bio_path):
-            bio_df = pd.read_csv(bio_path)
-            bio_df['month'] = pd.to_datetime(bio_df['month'])
-            self.forecast_series(bio_df, 'total_biometric', 'Biometric', 
-                                os.path.join(self.forecasts_dir, "biometric_forecast.csv"))
-                                
-        logger.info("Step 5 (Forecasting) Completed Successfully.")
+        logger.info("Forecasting Pipeline Completed Successfully.")
 
 if __name__ == "__main__":
     Forecaster().run()

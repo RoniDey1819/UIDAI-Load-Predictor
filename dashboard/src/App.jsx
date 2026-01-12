@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getStates, getDistricts, getForecasts, getRecommendations, getHeatmapData } from './services/api';
-import Heatmap from './components/Heatmap';
+import HighDemandMap from './components/HighDemandMap';
 import ForecastChart from './components/ForecastChart';
 import RecommendationCard from './components/RecommendationCard';
 import './App.css';
@@ -95,6 +95,12 @@ function App() {
     setRecommendations([]);
   };
 
+  // Fetch all recommendations for the map on mount
+  const [allRecommendations, setAllRecommendations] = useState([]);
+  useEffect(() => {
+    getRecommendations().then(setAllRecommendations);
+  }, []);
+
   return (
     <div className="app-container">
       <header className="header">
@@ -121,21 +127,6 @@ function App() {
             <button onClick={clearFilters} className="btn-clear">
               Reset Filters
             </button>
-          </div>
-        </div>
-
-        <div className="filter-group">
-          <label>Heatmap Pressure Metric</label>
-          <div className="tab-group">
-            {['enrolment', 'demographic', 'biometric'].map(type => (
-              <button
-                key={type}
-                className={`tab-btn ${heatmapType === type ? 'active' : ''}`}
-                onClick={() => setHeatmapType(type)}
-              >
-                {type.charAt(0).toUpperCase() + type.slice(1)}
-              </button>
-            ))}
           </div>
         </div>
       </div>
@@ -171,21 +162,7 @@ function App() {
           </section>
         </div>
 
-        <section className="section heatmap-section">
-          <div className="section-header">
-            <h2>{selectedState ? `Demand in ${selectedState}` : 'National Demand Intensity'}</h2>
-            <span>Click a district cell to drill down into detailed trends</span>
-          </div>
-          {loading ? (
-            <div className="loading-state">Syncing forecast data...</div>
-          ) : (
-            <Heatmap
-              data={heatmapData}
-              title={`${heatmapType.charAt(0).toUpperCase() + heatmapType.slice(1)} Forecast Matrix`}
-              onDistrictSelect={handleHeatmapClick}
-            />
-          )}
-        </section>
+        <HighDemandMap recommendations={allRecommendations} />
       </main>
 
       <footer className="footer">
