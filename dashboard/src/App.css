@@ -281,3 +281,47 @@ select:focus {
   margin-bottom: 12px;
   color: var(--text-main);
 }
+
+/* Leaflet Map Styles */
+.map-container {
+  height: 500px;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  z-index: 1;
+}
+
+.map-popup .leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  padding: 0;
+}
+
+.map-popup .popup-header {
+  background: var(--primary);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px 8px 0 0;
+  font-weight: 700;
+}
+
+.map-popup .popup-body {
+  padding: 12px;
+}
+
+.map-popup .popup-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+}
+
+.map-popup .popup-label {
+  color: var(--text-muted);
+}
+
+.map-popup .popup-value {
+  font-weight: 600;
+  color: var(--primary);
+}
