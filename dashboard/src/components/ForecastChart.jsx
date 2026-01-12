@@ -9,8 +9,8 @@ const ForecastChart = ({ data, type, title }) => {
     // Sort by date
     const sortedData = [...data].sort((a, b) => new Date(a.month) - new Date(b.month));
 
-    const dates = sortedData.map(d => d.month);
-    const values = sortedData.map(d => d.forecast_value);
+    const historicalData = sortedData.filter(d => !d.is_forecast);
+    const forecastData = sortedData.filter(d => d.is_forecast);
 
     // Dynamic color based on type
     const colorMap = {
@@ -19,29 +19,43 @@ const ForecastChart = ({ data, type, title }) => {
         'biometric': '#ef4444', // red
     };
 
+    const baseColor = colorMap[type] || '#8884d8';
+
     return (
-        <div className="w-full h-full bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-bold mb-4">{title}</h3>
+        <div className="forecast-chart-card">
+            <h3 className="chart-title">{title}</h3>
             <Plot
                 data={[
                     {
-                        x: dates,
-                        y: values,
+                        x: historicalData.map(d => d.month),
+                        y: historicalData.map(d => d.value),
                         type: 'scatter',
                         mode: 'lines+markers',
-                        marker: { color: colorMap[type] || '#8884d8' },
-                        name: 'Forecast',
+                        marker: { color: baseColor, opacity: 0.6 },
+                        line: { color: baseColor, width: 2, dash: 'dot' },
+                        name: 'History (6m)',
+                    },
+                    {
+                        x: forecastData.map(d => d.month),
+                        y: forecastData.map(d => d.value),
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        marker: { color: baseColor, size: 8 },
+                        line: { color: baseColor, width: 4 },
+                        name: 'Forecast Spike',
                     },
                 ]}
                 layout={{
                     autosize: true,
-                    margin: { l: 50, r: 20, t: 20, b: 50 },
-                    xaxis: { title: 'Date' },
-                    yaxis: { title: 'Volume' },
+                    margin: { l: 50, r: 20, t: 30, b: 50 },
+                    xaxis: { title: 'Timeline' },
+                    yaxis: { title: 'Demand Volume' },
                     showlegend: true,
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
                 }}
                 useResizeHandler={true}
-                style={{ width: '100%', height: '400px' }}
+                style={{ width: '100%', height: '350px' }}
             />
         </div>
     );

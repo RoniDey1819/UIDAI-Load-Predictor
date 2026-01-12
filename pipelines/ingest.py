@@ -103,17 +103,24 @@ class Ingestor:
         logger.info(f"Successfully loaded {len(final_df)} rows for {dataset_type}")
         return final_df
 
+    def run(self):
+        """
+        Main execution method to ingest and save raw data.
+        """
+        self.processed_dir = settings.PROCESSED_DATA_DIR
+        os.makedirs(self.processed_dir, exist_ok=True)
+        
+        for dtype in ['enrolment', 'demographic', 'biometric']:
+            try:
+                df = self.load_raw_data(dtype)
+                if not df.empty:
+                    # Save as *_raw_all.csv as expected by the new clean.py
+                    output_path = os.path.join(self.processed_dir, f"{dtype}_raw_all.csv")
+                    df.to_csv(output_path, index=False)
+                    logger.info(f"Saved raw combined data to {output_path}")
+            except Exception as e:
+                logger.error(f"Failed to ingest {dtype}: {e}")
+
 if __name__ == "__main__":
-    # verification run
     ingestor = Ingestor()
-    
-    for dtype in ['enrolment', 'demographic', 'biometric']:
-        print(f"\n--- Ingesting {dtype.upper()} ---")
-        try:
-            df = ingestor.load_raw_data(dtype)
-            print(f"Shape: {df.shape}")
-            if not df.empty:
-                print("Head:")
-                print(df.head(2))
-        except Exception as e:
-            print(f"Ingestion failed: {e}")
+    ingestor.run()

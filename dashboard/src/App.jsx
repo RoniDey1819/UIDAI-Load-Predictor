@@ -141,22 +141,6 @@ function App() {
       </div>
 
       <main className="dashboard-grid">
-        <section className="section heatmap-section">
-          <div className="section-header">
-            <h2>{selectedState ? `Demand in ${selectedState}` : 'National Demand Intensity'}</h2>
-            <span>Click a district cell to drill down into detailed trends</span>
-          </div>
-          {loading ? (
-            <div className="loading-state">Syncing forecast data...</div>
-          ) : (
-            <Heatmap
-              data={heatmapData}
-              title={`${heatmapType.charAt(0).toUpperCase() + heatmapType.slice(1)} Forecast Matrix`}
-              onDistrictSelect={handleHeatmapClick}
-            />
-          )}
-        </section>
-
         <div className="details-grid">
           <section className="section charts-section">
             <div className="section-header">
@@ -186,6 +170,22 @@ function App() {
             </div>
           </section>
         </div>
+
+        <section className="section heatmap-section">
+          <div className="section-header">
+            <h2>{selectedState ? `Demand in ${selectedState}` : 'National Demand Intensity'}</h2>
+            <span>Click a district cell to drill down into detailed trends</span>
+          </div>
+          {loading ? (
+            <div className="loading-state">Syncing forecast data...</div>
+          ) : (
+            <Heatmap
+              data={heatmapData}
+              title={`${heatmapType.charAt(0).toUpperCase() + heatmapType.slice(1)} Forecast Matrix`}
+              onDistrictSelect={handleHeatmapClick}
+            />
+          )}
+        </section>
       </main>
 
       <footer className="footer">

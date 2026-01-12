@@ -102,24 +102,79 @@ def get_forecasts(type: str, state: Optional[str] = None, district: Optional[str
     if type not in ['enrolment', 'demographic', 'biometric']:
         raise HTTPException(status_code=400, detail="Invalid forecast type")
         
-    filename = f"{type}_forecast.csv"
-    filepath = os.path.join(FORECAST_DIR, filename)
-    df = load_data(filepath)
+    # 1. Get Forecast Data
+    forecast_filename = f"{type}_forecast.csv"
+    forecast_filepath = os.path.join(FORECAST_DIR, forecast_filename)
+    f_df = load_data(forecast_filepath)
     
-    if df is None:
+    if f_df is None:
         raise HTTPException(status_code=404, detail=f"Forecast data for {type} not found")
         
-    temp_df = df.copy()
+    f_temp = f_df.copy()
     if state:
-        temp_df = temp_df[temp_df['state'] == state]
+        f_temp = f_temp[f_temp['state'] == state]
     if district:
-        temp_df = temp_df[temp_df['district'] == district]
+        f_temp = f_temp[f_temp['district'] == district]
+    
+    f_temp['is_forecast'] = True
+    f_temp = f_temp.rename(columns={'forecast_value': 'value'})
+
+    # 2. Get Historical Data (Last 6 months)
+    hist_filename = f"{type}_monthly_agg.csv"
+    hist_filepath = os.path.join(os.path.join(DATA_DIR, "processed"), hist_filename)
+    h_df = load_data(hist_filepath)
+    
+    combined_data = []
+    
+    if h_df is not None:
+        h_temp = h_df.copy()
+        if state:
+            h_temp = h_temp[h_temp['state'] == state]
+        if district:
+            h_temp = h_temp[h_temp['district'] == district]
+            
+        # Aggregate historical columns into 'value' based on type
+        if type == 'enrolment':
+            # Sum age groups
+            h_temp['value'] = h_temp['age_0_5'] + h_temp['age_5_17'] + h_temp['age_18_greater']
+        elif type == 'demographic':
+            h_temp['value'] = h_temp['demo_age_5_17'] + h_temp['demo_age_17_']
+        elif type == 'biometric':
+            h_temp['value'] = h_temp['bio_age_5_17'] + h_temp['bio_age_17_']
+            
+        h_temp['is_forecast'] = False
         
-    # Convert dates to string for JSON
-    if 'month' in temp_df.columns:
-        temp_df['month'] = temp_df['month'].dt.strftime('%Y-%m-%d')
+        # Keep only necessary columns for the chart
+        h_subset = h_temp[['state', 'district', 'month', 'value', 'is_forecast']].tail(6 * (len(h_temp['district'].unique()) if not district else 1))
         
-    return temp_df.to_dict(orient="records")
+        # If multiple districts are selected (only state filter), we need to aggregate them by month
+        if state and not district:
+            h_subset = h_subset.groupby(['state', 'month', 'is_forecast'])['value'].sum().reset_index()
+            h_subset['district'] = "All"
+        elif not state and not district:
+            h_subset = h_subset.groupby(['month', 'is_forecast'])['value'].sum().reset_index()
+            h_subset['state'] = "All"
+            h_subset['district'] = "All"
+
+        # Format month for JSON
+        h_subset['month'] = h_subset['month'].dt.strftime('%Y-%m-%d')
+        combined_data.extend(h_subset.to_dict(orient="records"))
+
+    # Process Forecast data for aggregation if needed
+    if state and not district:
+        f_subset = f_temp.groupby(['state', 'month', 'is_forecast'])['value'].sum().reset_index()
+        f_subset['district'] = "All"
+    elif not state and not district:
+        f_subset = f_temp.groupby(['month', 'is_forecast'])['value'].sum().reset_index()
+        f_subset['state'] = "All"
+        f_subset['district'] = "All"
+    else:
+        f_subset = f_temp[['state', 'district', 'month', 'value', 'is_forecast']]
+
+    f_subset['month'] = f_subset['month'].dt.strftime('%Y-%m-%d')
+    combined_data.extend(f_subset.to_dict(orient="records"))
+        
+    return combined_data
 
 @app.get("/api/recommendations")
 def get_recommendations(state: Optional[str] = None, district: Optional[str] = None):

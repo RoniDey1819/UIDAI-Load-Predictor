@@ -5,12 +5,10 @@ __pycache__/
 
 # Data files
 data/raw/
-data/processed/clean_*.csv
-data/processed/biometric_monthly_agg.csv
-data/processed/demographic_monthly_agg.csv
-data/processed/enrolment_monthly_agg.csv
+data/processed/
 data/features/
 data/forecasts/
+data/reference
 data/recommendations.csv
 
 # Environments

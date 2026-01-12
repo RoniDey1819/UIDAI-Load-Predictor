@@ -38,6 +38,12 @@ class Aggregator:
             return pd.DataFrame()
         
         df = pd.read_csv(path)
+        # Handle new date column names from clean.py
+        if 'enrolment_date' in df.columns:
+            df.rename(columns={'enrolment_date': 'date'}, inplace=True)
+        elif 'update_date' in df.columns:
+            df.rename(columns={'update_date': 'date'}, inplace=True)
+
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'])
         return df
@@ -78,7 +84,7 @@ class Aggregator:
         
         # --- 1. Enrolment Aggregation ---
         logger.info("Processing Enrolment Data...")
-        enrol_df = self.load_data("clean_enrolment.csv")
+        enrol_df = self.load_data("enrolment_clean.csv")
         enrol_agg = self.aggregate_single_dataset(enrol_df, "Enrolment")
         if not enrol_agg.empty:
             enrol_agg.to_csv(self.enrolment_output, index=False)
@@ -86,7 +92,7 @@ class Aggregator:
 
         # --- 2. Demographic Aggregation ---
         logger.info("Processing Demographic Data...")
-        demo_df = self.load_data("clean_demographic.csv")
+        demo_df = self.load_data("demographic_clean.csv")
         demo_agg = self.aggregate_single_dataset(demo_df, "Demographic")
         if not demo_agg.empty:
             demo_agg.to_csv(self.demographic_output, index=False)
@@ -94,7 +100,7 @@ class Aggregator:
 
         # --- 3. Biometric Aggregation ---
         logger.info("Processing Biometric Data...")
-        bio_df = self.load_data("clean_biometric.csv")
+        bio_df = self.load_data("biometric_clean.csv")
         bio_agg = self.aggregate_single_dataset(bio_df, "Biometric")
         if not bio_agg.empty:
             bio_agg.to_csv(self.biometric_output, index=False)
