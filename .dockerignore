@@ -1,0 +1,27 @@
+# Node.js Docker Ignore File
+
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log
+
+# Git
+.git/
+
+# Environment variables
+.env
+
+# Coverage reports
+coverage/
+
+# Distribution files
+ dist/
+build/
+
+# macOS specific
+.DS_Store
+
+# IDE specific
+.vscode/
+.idea/
