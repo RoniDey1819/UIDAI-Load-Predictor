@@ -1,0 +1,26 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files
+data/raw/
+data/processed/clean_*.csv
+data/processed/biometric_monthly_agg.csv
+data/processed/demographic_monthly_agg.csv
+data/processed/enrolment_monthly_agg.csv
+data/features/
+data/forecasts/
+data/recommendations.csv
+
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.env

@@ -1,6 +1,10 @@
 pandas
 numpy
 matplotlib
+seaborn
 statsmodels
 scikit-learn
 python-dateutil
+fastapi
+uvicorn[standard]
+python-multipart

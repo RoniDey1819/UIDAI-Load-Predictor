@@ -1,0 +1,161 @@
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+import os
+import logging
+from typing import List, Optional, Dict
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="UIDAI Load Predictor API")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow all for local dev
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configuration
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+FORECAST_DIR = os.path.join(DATA_DIR, "forecasts")
+FEATURES_DIR = os.path.join(DATA_DIR, "features")
+
+# In-memory cache for data
+data_cache = {}
+
+def load_data(file_path):
+    """Loads CSV data with caching and basic validation."""
+    if file_path in data_cache:
+        # Check file modification time to see if we should reload
+        if os.path.getmtime(file_path) <= data_cache[file_path]['mtime']:
+            return data_cache[file_path]['df']
+    
+    if not os.path.exists(file_path):
+        logger.warning(f"File not found: {file_path}")
+        return None
+        
+    try:
+        df = pd.read_csv(file_path)
+        if 'month' in df.columns:
+            df['month'] = pd.to_datetime(df['month'])
+        
+        data_cache[file_path] = {
+            'df': df,
+            'mtime': os.path.getmtime(file_path)
+        }
+        return df
+    except Exception as e:
+        logger.error(f"Error loading {file_path}: {e}")
+        return None
+
+@app.get("/")
+def read_root():
+    return {
+        "status": "online",
+        "message": "UIDAI Load Predictor API",
+        "version": "1.0.0"
+    }
+
+@app.get("/api/meta")
+def get_meta():
+    """Returns metadata about the available data (last update, row counts)."""
+    meta = {}
+    files = {
+        "enrolment": os.path.join(FORECAST_DIR, "enrolment_forecast.csv"),
+        "demographic": os.path.join(FORECAST_DIR, "demographic_forecast.csv"),
+        "biometric": os.path.join(FORECAST_DIR, "biometric_forecast.csv"),
+        "recommendations": os.path.join(DATA_DIR, "recommendations.csv")
+    }
+    
+    for key, path in files.items():
+        if os.path.exists(path):
+            df = load_data(path)
+            meta[key] = {
+                "rows": len(df) if df is not None else 0,
+                "last_update": pd.Timestamp(os.path.getmtime(path), unit='s').strftime('%Y-%m-%d %H:%M:%S')
+            }
+    return meta
+
+@app.get("/api/states")
+def get_states():
+    df = load_data(os.path.join(FORECAST_DIR, "enrolment_forecast.csv"))
+    if df is None:
+        return {"states": []}
+    return {"states": sorted(df['state'].unique().tolist())}
+
+@app.get("/api/districts/{state}")
+def get_districts(state: str):
+    df = load_data(os.path.join(FORECAST_DIR, "enrolment_forecast.csv"))
+    if df is None:
+        return {"districts": []}
+    districts = df[df['state'] == state]['district'].unique().tolist()
+    return {"districts": sorted(districts)}
+
+@app.get("/api/forecasts/{type}")
+def get_forecasts(type: str, state: Optional[str] = None, district: Optional[str] = None):
+    if type not in ['enrolment', 'demographic', 'biometric']:
+        raise HTTPException(status_code=400, detail="Invalid forecast type")
+        
+    filename = f"{type}_forecast.csv"
+    filepath = os.path.join(FORECAST_DIR, filename)
+    df = load_data(filepath)
+    
+    if df is None:
+        raise HTTPException(status_code=404, detail=f"Forecast data for {type} not found")
+        
+    temp_df = df.copy()
+    if state:
+        temp_df = temp_df[temp_df['state'] == state]
+    if district:
+        temp_df = temp_df[temp_df['district'] == district]
+        
+    # Convert dates to string for JSON
+    if 'month' in temp_df.columns:
+        temp_df['month'] = temp_df['month'].dt.strftime('%Y-%m-%d')
+        
+    return temp_df.to_dict(orient="records")
+
+@app.get("/api/recommendations")
+def get_recommendations(state: Optional[str] = None, district: Optional[str] = None):
+    filepath = os.path.join(DATA_DIR, "recommendations.csv")
+    df = load_data(filepath)
+    
+    if df is None:
+        raise HTTPException(status_code=404, detail="Recommendations not found")
+        
+    temp_df = df.copy()
+    if state:
+        temp_df = temp_df[temp_df['state'] == state]
+    if district:
+        temp_df = temp_df[temp_df['district'] == district]
+        
+    return temp_df.to_dict(orient="records")
+
+@app.get("/api/heatmap/{type}")
+def get_heatmap_data(type: str, state: Optional[str] = None):
+    """Returns aggregated data for heatmap, optionally filtered by state."""
+    filename = f"{type}_forecast.csv"
+    filepath = os.path.join(FORECAST_DIR, filename)
+    df = load_data(filepath)
+    
+    if df is None:
+        raise HTTPException(status_code=404, detail=f"Forecast data for {type} not found")
+    
+    temp_df = df.copy()
+    if state:
+        temp_df = temp_df[temp_df['state'] == state]
+    
+    if 'month' in temp_df.columns:
+        temp_df['month'] = temp_df['month'].dt.strftime('%Y-%m-%d')
+        
+    return temp_df.to_dict(orient="records")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
