@@ -57,7 +57,17 @@ cd dashboard
 npm install
 ```
 
+### 3. Docker Setup (Recommended)
+You can run the entire application (Backend + Frontend) using Docker:
+```bash
+docker-compose up --build
+```
+This will start:
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://localhost:8000
+
 ## 🏃 Usage
+
 
 ### Running the Data Pipeline
 To process raw data and generate fresh forecasts across all domains:
