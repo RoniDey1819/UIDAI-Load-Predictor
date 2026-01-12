@@ -51,10 +51,18 @@ class Aggregator:
     def aggregate_single_dataset(self, df, dataset_name):
         """
         Aggregates a single dataset by state, district, and month.
+        Uses event counts (row count), not numeric sums.
         """
         if df.empty:
             logger.warning(f"Dataset {dataset_name} is empty. Skipping aggregation.")
             return pd.DataFrame()
+        
+        #Drop invalid geography
+        df = df[(df["district"] != "UNKNOWN") & (df["state"] != "UNKNOWN")]
+
+        #Ensure valid dates
+        df['date'] = pd.to_datetime(df['date'], errors="coerce")
+        df = df.dropna(subset=["date"])
 
         # Create 'month' column (YYYY-MM-01) for grouping
         # We use the first day of the month as the representative date
