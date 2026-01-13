@@ -25,9 +25,9 @@ class Recommender:
     Infrastructure Recommendation Engine.
 
     Philosophy:
-    - Rank regions RELATIVELY using a composite demand score
-    - Convert scores into percentile-based infrastructure categories
-    - Add biometric capability flags independently of center type
+    - Absolute Demand Tiers: Recommendations based on capacity needs, not just ranking.
+    - Volume Weighting: High-volume hubs are prioritized over low-volume ratios.
+    - Logistical Load: Composite score integrates growth, update pressure, and biometric stress.
     """
 
     def __init__(self):
@@ -49,7 +49,7 @@ class Recommender:
                            .reset_index().rename(columns={'forecast_value': 'avg_demographic'})
 
             bio_avg = bio.groupby(['state', 'district'])['forecast_value'].mean() \
-                          .reset_index().rename(columns={'forecast_value': 'avg_biometric'})
+                           .reset_index().rename(columns={'forecast_value': 'avg_biometric'})
 
             return enrol_avg, demo_avg, bio_avg
 
@@ -59,7 +59,7 @@ class Recommender:
 
     # -------------------------------------------------------------------------
     def load_historical_averages(self):
-        logger.info("Loading historical 6-month averages...")
+        logger.info("Loading recent historical averages...")
 
         tasks = [
             ('enrolment_features.csv', 'total_enrolment', 'prev_avg_enrolment'),
@@ -73,12 +73,12 @@ class Recommender:
             if os.path.exists(path):
                 df = pd.read_csv(path)
                 df['month'] = pd.to_datetime(df['month'])
+                
+                # Use mean of up to last 6 months (robust for shallow data)
                 avg_df = (
                     df.sort_values(['state', 'district', 'month'])
-                      .groupby(['state', 'district'])
-                      .tail(6)
                       .groupby(['state', 'district'])[val_col]
-                      .mean()
+                      .apply(lambda x: x.tail(6).mean()) # Handle <6 points naturally
                       .reset_index()
                       .rename(columns={val_col: out_col})
                 )
@@ -90,7 +90,7 @@ class Recommender:
 
     # -------------------------------------------------------------------------
     def generate_recommendations(self):
-        logger.info("Generating Infrastructure Recommendations (Final Logic)...")
+        logger.info("Generating Infrastructure Recommendations (Absolute Tiers)...")
 
         enrol_df, demo_df, bio_df = self.load_forecasts()
         if enrol_df is None:
@@ -111,62 +111,71 @@ class Recommender:
         master = master.fillna(0)
 
         # ---------------------------------------------------------------------
-        # 1️⃣ SCORE COMPUTATION
+        # 1️⃣ LOAD & GROWTH COMPUTATION
         # ---------------------------------------------------------------------
+        total_monthly_demand = master['avg_enrolment'] + master['avg_demographic'] + master['avg_biometric']
+        prev_total_demand = master['prev_avg_enrolment'] + master['prev_avg_demographic'] + master['prev_avg_biometric']
+        
+        # Absolute volume weight (Logarithmic to handle Metros vs Villages)
+        master['volume_weight'] = np.log10(total_monthly_demand + 1)
 
         # Growth signal (forecast vs recent history)
-        master['growth_score'] = (
-            (master['avg_enrolment'] - master['prev_avg_enrolment']) /
-            master['prev_avg_enrolment'].replace(0, np.nan)
+        master['growth_rate'] = (
+            (total_monthly_demand - prev_total_demand) /
+            prev_total_demand.replace(0, np.nan)
         ).replace([np.inf, -np.inf], 0).fillna(0)
 
-        # Update pressure signal
-        total_updates = master['avg_demographic'] + master['avg_biometric']
-        master['update_pressure_score'] = total_updates / (master['avg_enrolment'] + 1)
+        # ---------------------------------------------------------------------
+        # 2️⃣ COMPOSITE DEMAND SCORE (VOLUME WEIGHTED)
+        # ---------------------------------------------------------------------
+        # Pressure Ratios
+        update_pressure = (master['avg_demographic'] + master['avg_biometric']) / (master['avg_enrolment'] + 1)
+        biometric_stress = master['avg_biometric'] / (master['avg_demographic'] + master['avg_biometric'] + 1)
 
-        # Biometric stress signal
-        master['biometric_stress_score'] = master['avg_biometric'] / (total_updates + 1)
-
-        # Normalize all scores (relative ranking)
-        for col in ['growth_score', 'update_pressure_score', 'biometric_stress_score']:
-            max_val = master[col].abs().max()
-            if max_val > 0:
-                master[col] = master[col] / max_val
-
-        # Composite Infrastructure Demand Score
+        # Demand Score = [Growth + Update Pressure + Biometric Stress] * VolumeWeight
+        # This ensures high-volume areas with high stress rank highest.
         master['infra_demand_score'] = (
-            0.4 * master['growth_score'] +
-            0.3 * master['update_pressure_score'] +
-            0.3 * master['biometric_stress_score']
-        )
+            (0.4 * master['growth_rate']) + 
+            (0.3 * update_pressure.clip(0, 5)) + 
+            (0.3 * biometric_stress)
+        ) * master['volume_weight']
 
         # ---------------------------------------------------------------------
-        # 2️⃣ PERCENTILE-BASED CATEGORY MAPPING (CRITICAL FIX)
+        # 3️⃣ BEHAVIORAL & CAPACITY CATEGORIZATION
         # ---------------------------------------------------------------------
-        p20 = master['infra_demand_score'].quantile(0.20)
-        p40 = master['infra_demand_score'].quantile(0.40)
-        p60 = master['infra_demand_score'].quantile(0.60)
-        p80 = master['infra_demand_score'].quantile(0.80)
-
-        def map_recommendation(score):
-            if score < p20:
-                return "Mobile/Camp-Mode Point"
-            if score < p40:
-                return "Update-Only Center"
-            if score < p60:
-                return "Enrolment-Centric Center"
-            if score < p80:
+        def map_recommendation(row):
+            load = row['avg_enrolment'] + row['avg_demographic'] + row['avg_biometric']
+            enrolment = row['avg_enrolment']
+            growth = row['growth_rate']
+            
+            # --- Tier 1: Emergency / Extreme Demand (>50k or Huge Surge) ---
+            if load > 50000 or (load > 15000 and growth > 0.6):
+                return "Overall High Activities"
+            
+            # --- Tier 2: High-Volume Hub (>20k) ---
+            if load > 20000:
                 return "Overall Average Activities"
-            return "Overall High Activities"
+            
+            # --- Tier 3/4: Medium-Volume Behavioral Split ---
+            # If enrolment volume is significant, mark as Enrolment-Centric
+            if load > 2000:
+                if enrolment > 2000:
+                    return "Enrolment-Centric Center"
+                else:
+                    return "Update-Only Center"
+            
+            # --- Tier 5: Low Demand / Sparse ---
+            return "Mobile/Camp-Mode Point"
 
-        master['Recommendation'] = master['infra_demand_score'].apply(map_recommendation)
+        master['Recommendation'] = master.apply(map_recommendation, axis=1)
 
         # ---------------------------------------------------------------------
-        # 3️⃣ BIOMETRIC CAPABILITY OVERRIDE (ADDITIVE, NOT REPLACEMENT)
+        # 4️⃣ BIOMETRIC INFRASTRUCTURE OVERRIDE
         # ---------------------------------------------------------------------
         def add_biometric_flag(row):
-            if row['prev_avg_biometric'] >= 10000:
-                return row['Recommendation'] + " + Advanced Biometric Infrastructure Needed"
+            # If biometric load is SIGNIFICANT (>15,000 monthly), flag for advanced machines
+            if row['avg_biometric'] > 15000:
+                return row['Recommendation'] + " + Advanced Biometric Infrastructure Recommended"
             return row['Recommendation']
 
         master['Recommendation'] = master.apply(add_biometric_flag, axis=1)
@@ -175,9 +184,9 @@ class Recommender:
         # OUTPUT
         # ---------------------------------------------------------------------
         master.to_csv(self.output_file, index=False)
-        logger.info(f"✅ Final Recommendations saved ({len(master)} rows)")
+        logger.info(f"✅ Enhanced Recommendations saved ({len(master)} rows)")
 
-        logger.info("\nFinal Recommendation Distribution:")
+        logger.info("\nFinal Recommendation Distribution (Absolute Tiers):")
         for k, v in master['Recommendation'].value_counts().items():
             logger.info(f"  - {k}: {v}")
 
