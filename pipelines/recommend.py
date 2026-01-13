@@ -33,6 +33,7 @@ class Recommender:
     def __init__(self):
         self.forecasts_dir = os.path.join(settings.DATA_DIR, "forecasts")
         self.features_dir = settings.FEATURES_DATA_DIR
+        self.reference_file = os.path.join(settings.DATA_DIR, "reference", "pin_district.csv")
         self.output_file = os.path.join(settings.DATA_DIR, "recommendations.csv")
 
     # -------------------------------------------------------------------------
@@ -87,6 +88,28 @@ class Recommender:
                 results.append(None)
 
         return results
+
+    # -------------------------------------------------------------------------
+    def load_coordinates(self):
+        """Extracts representative coordinates for each district."""
+        if not os.path.exists(self.reference_file):
+            logger.warning(f"Reference file {self.reference_file} missing. Map will be empty.")
+            return None
+
+        logger.info("Loading district coordinates...")
+        df = pd.read_csv(self.reference_file)
+        
+        # Filter out invalid coords
+        df = df[df['latitude'].notna() & df['longitude'].notna()]
+        df = df[(df['latitude'] != 'NA') & (df['longitude'] != 'NA')]
+        df['latitude'] = pd.to_numeric(df['latitude'], errors='coerce')
+        df['longitude'] = pd.to_numeric(df['longitude'], errors='coerce')
+        
+        # Calculate centroid/mean per district
+        coords = df.groupby(['statename', 'district'])[['latitude', 'longitude']].mean().reset_index()
+        coords.columns = ['state', 'district', 'latitude', 'longitude']
+        
+        return coords
 
     # -------------------------------------------------------------------------
     def generate_recommendations(self):
@@ -179,6 +202,23 @@ class Recommender:
             return row['Recommendation']
 
         master['Recommendation'] = master.apply(add_biometric_flag, axis=1)
+
+        # ---------------------------------------------------------------------
+        # 5️⃣ ATTACH COORDINATES FOR MAPPING
+        # ---------------------------------------------------------------------
+        coords_df = self.load_coordinates()
+        if coords_df is not None:
+            # Normalize names for joining
+            master['state_upper'] = master['state'].str.upper().str.strip()
+            master['district_upper'] = master['district'].str.upper().str.strip()
+            coords_df['state_upper'] = coords_df['state'].str.upper().str.strip()
+            coords_df['district_upper'] = coords_df['district'].str.upper().str.strip()
+            
+            master = master.merge(
+                coords_df[['state_upper', 'district_upper', 'latitude', 'longitude']],
+                on=['state_upper', 'district_upper'],
+                how='left'
+            ).drop(columns=['state_upper', 'district_upper'])
 
         # ---------------------------------------------------------------------
         # OUTPUT

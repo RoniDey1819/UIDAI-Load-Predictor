@@ -13,11 +13,15 @@ L.Icon.Default.mergeOptions({
 
 const HighDemandMap = ({ recommendations }) => {
     // Filter for districts that need advanced biometric kits
-    const bioHighDistricts = recommendations.filter(rec =>
-        rec.Recommendation.includes("Advanced Biometric Required") &&
-        rec.latitude !== 0 &&
-        rec.longitude !== 0
-    );
+    const bioHighDistricts = recommendations.filter(rec => {
+        const hasRec = rec.Recommendation && rec.Recommendation.includes("Advanced Biometric Infrastructure Recommended");
+        const lat = parseFloat(rec.latitude);
+        const lng = parseFloat(rec.longitude);
+        const hasCoords = !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+        return hasRec && hasCoords;
+    });
+
+    console.log(`[Map Debug] Input: ${recommendations.length} total, Filtered: ${bioHighDistricts.length} priority zones`);
 
     // Precise bounds for India to ensure Kashmir and all borders are visible
     const indiaBounds = [
@@ -26,13 +30,17 @@ const HighDemandMap = ({ recommendations }) => {
     ];
 
     return (
-        <div className="section">
+        <section className="section map-section">
             <div className="section-header">
-                <h2>Advanced Biometric High-Demand Zones</h2>
-                <span>Districts requiring prioritized Advanced Biometric Kit deployment based on forecast growth</span>
+                <h2>Strategic Biometric Expansion Map</h2>
+                <span className="badge badge-red">{bioHighDistricts.length} Priority Zones</span>
             </div>
 
-            <div className="map-container shadow-inner">
+            <p className="text-sm text-slate-500 mb-4">
+                Visualizing districts exceeding the <strong>15,000 monthly activity threshold</strong> requiring immediate Advanced Biometric infrastructure expansion.
+            </p>
+
+            <div className="map-container overflow-hidden rounded-xl border border-slate-200">
                 <MapContainer
                     bounds={indiaBounds}
                     maxBounds={indiaBounds}
@@ -47,24 +55,27 @@ const HighDemandMap = ({ recommendations }) => {
                     {bioHighDistricts.map((d, idx) => (
                         <Marker key={idx} position={[d.latitude, d.longitude]}>
                             <Popup className="map-popup">
-                                <div className="popup-header">
-                                    {d.district}
-                                </div>
-                                <div className="popup-body">
-                                    <div className="text-xs font-bold text-gray-400 mb-2 uppercase">{d.state}</div>
-                                    <div className="popup-stat">
-                                        <span className="popup-label">Monthly Bio Volume:</span>
-                                        <span className="popup-value">{d.avg_biometric}</span>
+                                <div className="p-1">
+                                    <div className="bg-slate-900 text-white p-3 rounded-t-lg -m-1 mb-2">
+                                        <div className="font-bold text-sm tracking-tight">{d.district}</div>
+                                        <div className="text-[10px] text-slate-400 font-bold uppercase">{d.state}</div>
                                     </div>
-                                    <div className="popup-stat">
-                                        <span className="popup-label">Forecast Growth:</span>
-                                        <span className="popup-value text-green-600">
-                                            {((d.avg_biometric - d.prev_avg_biometric) / d.prev_avg_biometric * 100).toFixed(1)}%
-                                        </span>
-                                    </div>
-                                    <hr className="my-2" />
-                                    <div className="text-[10px] text-gray-500 italic">
-                                        Lat: {d.latitude.toFixed(4)}, Long: {d.longitude.toFixed(4)}
+                                    <div className="p-1 space-y-2">
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Predicted Load:</span>
+                                            <span className="font-bold text-blue-600">{d.avg_biometric.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-500">Growth Intensity:</span>
+                                            <span className="font-bold text-green-600">
+                                                +{d.prev_avg_biometric > 0
+                                                    ? ((d.avg_biometric - d.prev_avg_biometric) / d.prev_avg_biometric * 100).toFixed(1)
+                                                    : '0.0'}%
+                                            </span>
+                                        </div>
+                                        <div className="pt-2 border-t mt-2 text-[9px] text-slate-400 text-center font-mono">
+                                            COORD: {d.latitude.toFixed(3)}, {d.longitude.toFixed(3)}
+                                        </div>
                                     </div>
                                 </div>
                             </Popup>
@@ -72,7 +83,7 @@ const HighDemandMap = ({ recommendations }) => {
                     ))}
                 </MapContainer>
             </div>
-        </div>
+        </section>
     );
 };
 

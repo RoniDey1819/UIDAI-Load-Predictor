@@ -1,18 +1,18 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = '/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
 });
 
 export const getStates = async () => {
-    const response = await api.get('/states');
+    const response = await api.get('states');
     return response.data.states;
 };
 
 export const getDistricts = async (state) => {
-    const response = await api.get(`/districts/${state}`);
+    const response = await api.get(`districts/${state}`);
     return response.data.districts;
 };
 
@@ -21,7 +21,7 @@ export const getForecasts = async (type, state, district) => {
     if (state) params.state = state;
     if (district) params.district = district;
 
-    const response = await api.get(`/forecasts/${type}`, { params });
+    const response = await api.get(`forecasts/${type}`, { params });
     return response.data;
 };
 
@@ -30,11 +30,12 @@ export const getRecommendations = async (state, district) => {
     if (state) params.state = state;
     if (district) params.district = district;
 
-    const response = await api.get('/recommendations', { params });
+    const response = await api.get('recommendations', { params });
     return response.data;
 };
 
-export const getHeatmapData = async (type) => {
-    const response = await api.get(`/heatmap/${type}`);
+export const getHeatmapData = async (type, state) => {
+    const params = state ? { state } : {};
+    const response = await api.get(`heatmap/${type}`, { params });
     return response.data;
 };
