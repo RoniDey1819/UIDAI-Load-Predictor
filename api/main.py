@@ -59,7 +59,10 @@ def read_root():
     return {
         "status": "online",
         "message": "UIDAI Load Predictor API",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "base_dir": BASE_DIR,
+        "data_dir_exists": os.path.exists(DATA_DIR),
+        "forecast_dir_exists": os.path.exists(FORECAST_DIR)
     }
 
 @app.get("/api/health")
@@ -183,19 +186,37 @@ def get_forecasts(type: str, state: Optional[str] = None, district: Optional[str
 
 @app.get("/api/recommendations")
 def get_recommendations(state: Optional[str] = None, district: Optional[str] = None):
-    filepath = os.path.join(DATA_DIR, "recommendations.csv")
-    df = load_data(filepath)
-    
-    if df is None:
-        raise HTTPException(status_code=404, detail="Recommendations not found")
+    try:
+        filepath = os.path.join(DATA_DIR, "recommendations.csv")
+        df = load_data(filepath)
         
-    temp_df = df.copy()
-    if state:
-        temp_df = temp_df[temp_df['state'] == state]
-    if district:
-        temp_df = temp_df[temp_df['district'] == district]
-        
-    return temp_df.to_dict(orient="records")
+        if df is None:
+            raise HTTPException(status_code=404, detail="Recommendations not found")
+            
+        temp_df = df.copy()
+        if state:
+            temp_df = temp_df[temp_df['state'] == state]
+        if district:
+            temp_df = temp_df[temp_df['district'] == district]
+            
+        # Ensure coordinates are numeric for the frontend
+        if 'latitude' in temp_df.columns:
+            temp_df['latitude'] = pd.to_numeric(temp_df['latitude'], errors='coerce')
+        if 'longitude' in temp_df.columns:
+            temp_df['longitude'] = pd.to_numeric(temp_df['longitude'], errors='coerce')
+            
+        # Robust Serialization: JSON cannot handle NaN or Infinity
+        records = temp_df.to_dict(orient="records")
+        for r in records:
+            for k, v in r.items():
+                if isinstance(v, float) and (v != v or v == float('inf') or v == float('-inf')):
+                    r[k] = None
+        return records
+    except Exception as e:
+        import traceback
+        error_detail = f"API Error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/api/heatmap/{type}")
 def get_heatmap_data(type: str, state: Optional[str] = None):
