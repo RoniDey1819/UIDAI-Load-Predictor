@@ -10,162 +10,173 @@ except ImportError:
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from config import settings
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 class Recommender:
     """
     Infrastructure Recommendation Engine.
-    The ONLY place where Enrolment, Demographic, and Biometric insights are combined.
+
+    Design philosophy:
+    - Use relative growth & pressure signals, not absolute forecasts
+    - Convert signals into a single Infrastructure Demand Score
+    - Map score to actionable infrastructure labels
     """
-    
+
     def __init__(self):
         self.forecasts_dir = os.path.join(settings.DATA_DIR, "forecasts")
         self.features_dir = settings.FEATURES_DATA_DIR
         self.output_file = os.path.join(settings.DATA_DIR, "recommendations.csv")
-        
+
+    # -------------------------------------------------------------------------
     def load_forecasts(self):
         try:
             enrol = pd.read_csv(os.path.join(self.forecasts_dir, "enrolment_forecast.csv"))
             demo = pd.read_csv(os.path.join(self.forecasts_dir, "demographic_forecast.csv"))
             bio = pd.read_csv(os.path.join(self.forecasts_dir, "biometric_forecast.csv"))
-            
-            # Aggregate forecasts to get average demand over the horizon (Next 6 Months)
-            enrol_avg = enrol.groupby(['state', 'district'])['forecast_value'].mean().reset_index().rename(columns={'forecast_value': 'avg_enrolment'})
-            demo_avg = demo.groupby(['state', 'district'])['forecast_value'].mean().reset_index().rename(columns={'forecast_value': 'avg_demographic'})
-            bio_avg = bio.groupby(['state', 'district'])['forecast_value'].mean().reset_index().rename(columns={'forecast_value': 'avg_biometric'})
-            
+
+            enrol_avg = enrol.groupby(['state', 'district'])['forecast_value'].mean() \
+                             .reset_index().rename(columns={'forecast_value': 'avg_enrolment'})
+
+            demo_avg = demo.groupby(['state', 'district'])['forecast_value'].mean() \
+                           .reset_index().rename(columns={'forecast_value': 'avg_demographic'})
+
+            bio_avg = bio.groupby(['state', 'district'])['forecast_value'].mean() \
+                          .reset_index().rename(columns={'forecast_value': 'avg_biometric'})
+
             return enrol_avg, demo_avg, bio_avg
+
         except FileNotFoundError as e:
             logger.error(f"Cannot find forecast files: {e}")
             return None, None, None
 
+    # -------------------------------------------------------------------------
     def load_historical_averages(self):
-        """
-        Calculates the average of the last 6 available months from feature files.
-        Also extracts accurate latitude and longitude from PIN reference.
-        """
-        logger.info("Loading Historical 6-month Averages and Coordinates...")
-        
-        # 1. Load coordinates from authoritative reference
-        coords_df = pd.DataFrame()
-        ref_path = os.path.join(settings.DATA_DIR, "reference", "pin_district.csv")
-        if os.path.exists(ref_path):
-            ref = pd.read_csv(ref_path, low_memory=False)
-            ref.columns = ref.columns.str.lower().str.strip()
-            if 'latitude' in ref.columns and 'longitude' in ref.columns:
-                ref['district'] = ref['district'].str.strip().str.upper()
-                ref['state'] = ref['statename'].str.strip().str.upper()
-                
-                # Force coordinates to numeric
-                ref['latitude'] = pd.to_numeric(ref['latitude'], errors='coerce')
-                ref['longitude'] = pd.to_numeric(ref['longitude'], errors='coerce')
-                
-                # Take the mean coordinate for the district, dropping NaNs
-                coords_df = ref.dropna(subset=['latitude', 'longitude']).groupby(['state', 'district'])[['latitude', 'longitude']].mean().reset_index()
+        logger.info("Loading Historical Averages...")
 
-        # 2. Load historical volume averages
         tasks = [
             ('enrolment_features.csv', 'total_enrolment', 'prev_avg_enrolment'),
             ('demographic_features.csv', 'total_updates', 'prev_avg_demographic'),
             ('biometric_features.csv', 'total_biometric', 'prev_avg_biometric')
         ]
-        
+
         hist_dfs = []
         for feat_file, val_col, new_col in tasks:
             path = os.path.join(self.features_dir, feat_file)
             if os.path.exists(path):
                 df = pd.read_csv(path)
                 df['month'] = pd.to_datetime(df['month'])
-                hist_avg = df.sort_values(['state', 'district', 'month']).groupby(['state', 'district']).tail(6)
-                hist_avg = hist_avg.groupby(['state', 'district'])[val_col].mean().reset_index().rename(columns={val_col: new_col})
-                hist_dfs.append(hist_avg)
+                last_vals = (
+                    df.sort_values(['state', 'district', 'month'])
+                      .groupby(['state', 'district'])
+                      .tail(6)
+                      .groupby(['state', 'district'])[val_col]
+                      .mean()
+                      .reset_index()
+                      .rename(columns={val_col: new_col})
+                )
+                hist_dfs.append(last_vals)
             else:
-                logger.warning(f"Feature file not found: {feat_file}")
                 hist_dfs.append(None)
-        
-        return hist_dfs, coords_df
 
+        return hist_dfs
+
+    # -------------------------------------------------------------------------
     def generate_recommendations(self):
-        logger.info("Generating Infrastructure Recommendations (Refined Logic)...")
-        
-        # Load Prediction Averages
-        enrol_df, demo_df, bio_df = self.load_forecasts()
-        if enrol_df is None: return
-        
-        # Load Historical Averages & Coords
-        hist_results, coords_df = self.load_historical_averages()
-        hist_enrol, hist_demo, hist_bio = hist_results
+        logger.info("Generating Infrastructure Recommendations (Score-Based)...")
 
-        # Merge Predictions
-        master = pd.merge(enrol_df, demo_df, on=['state', 'district'], how='outer')
-        master = pd.merge(master, bio_df, on=['state', 'district'], how='outer')
-        
-        # Merge Historical Data
-        if hist_enrol is not None: master = pd.merge(master, hist_enrol, on=['state', 'district'], how='left')
-        if hist_demo is not None: master = pd.merge(master, hist_demo, on=['state', 'district'], how='left')
-        if hist_bio is not None: master = pd.merge(master, hist_bio, on=['state', 'district'], how='left')
-        
-        # Merge Coordinates
-        if not coords_df.empty:
-            master = pd.merge(master, coords_df, on=['state', 'district'], how='left')
+        enrol_df, demo_df, bio_df = self.load_forecasts()
+        if enrol_df is None:
+            return
+
+        hist_enrol, hist_demo, hist_bio = self.load_historical_averages()
+
+        master = enrol_df.merge(demo_df, on=['state', 'district'], how='outer') \
+                          .merge(bio_df, on=['state', 'district'], how='outer')
+
+        if hist_enrol is not None:
+            master = master.merge(hist_enrol, on=['state', 'district'], how='left')
+        if hist_demo is not None:
+            master = master.merge(hist_demo, on=['state', 'district'], how='left')
+        if hist_bio is not None:
+            master = master.merge(hist_bio, on=['state', 'district'], how='left')
 
         master = master.fillna(0)
-        
-        # --- Simplified Infrastructure Logic (Prioritized Scale) ---
-        def recommend_v3(row):
-            enrol = row['avg_enrolment']
-            demo = row['avg_demographic']
-            bio = row['avg_biometric']
-            total_load = enrol + demo + bio
-            total_updates = demo + bio
-            
-            # 1. Low Activity Fallback
-            if total_load < 2000:
+
+        # ---------------------------------------------------------------------
+        # Score Computation (CORE CHANGE)
+        # ---------------------------------------------------------------------
+
+        # 1. Growth score (forecast vs historical)
+        master['growth_score'] = (
+            (master['avg_enrolment'] - master['prev_avg_enrolment']) /
+            master['prev_avg_enrolment'].replace(0, np.nan)
+        ).replace([np.inf, -np.inf], 0).fillna(0)
+
+        # 2. Update pressure score
+        total_updates = master['avg_demographic'] + master['avg_biometric']
+        master['update_pressure_score'] = (
+            total_updates / (master['avg_enrolment'] + 1)
+        )
+
+        # 3. Biometric stress score
+        master['biometric_stress_score'] = (
+            master['avg_biometric'] / (total_updates + 1)
+        )
+
+        # Normalize scores (0–1 range)
+        for col in ['growth_score', 'update_pressure_score', 'biometric_stress_score']:
+            max_val = master[col].abs().max()
+            if max_val > 0:
+                master[col] = master[col] / max_val
+
+        # Infrastructure Demand Score (weighted)
+        master['infra_demand_score'] = (
+            0.4 * master['growth_score'] +
+            0.3 * master['update_pressure_score'] +
+            0.3 * master['biometric_stress_score']
+        )
+
+        # ---------------------------------------------------------------------
+        # Score → Recommendation Mapping
+        # ---------------------------------------------------------------------
+        def map_recommendation(row):
+            score = row['infra_demand_score']
+
+            if score < 0.2:
                 return "Mobile/Camp-Mode Point"
-
-            # 2. Priority 1: High-Pressure Biometric Need
-            if bio > 10000:
-                return "Update-Only Center + Advanced Biometric Required"
-            
-            # 3. Priority 2: Volume-Based General Labels
-            if total_load > 20000:
-                return "Overall High Activities"
-                
-            if total_load > 10000:
-                return "Overall Average Activities"
-            
-            # 4. Priority 3: Specific Focus (for 2k - 10k range)
-            if enrol > (total_updates * 2):
+            if score < 0.4:
+                return "Update-Only Center"
+            if score < 0.6:
                 return "Enrolment-Centric Center"
-            
-            return "Update-Only Center"
+            if score < 0.8:
+                return "Overall Average Activities"
 
-        master['Recommendation'] = master.apply(recommend_v3, axis=1)
-        
-        # Formatting
-        cols_to_round = [
-            'avg_enrolment', 'avg_demographic', 'avg_biometric',
-            'prev_avg_enrolment', 'prev_avg_demographic', 'prev_avg_biometric'
-        ]
-        for col in cols_to_round:
-            if col in master.columns:
-                master[col] = master[col].round(1)
-        
-        # Save
+            return "Overall High Activities + Advanced Biometric"
+
+        master['Recommendation'] = master.apply(map_recommendation, axis=1)
+
         master.to_csv(self.output_file, index=False)
-        logger.info(f"✅ Infrastructure Recommendations saved to {self.output_file}. Rows: {len(master)}")
-        
-        # Summary Distribution for verification
-        dist = master['Recommendation'].value_counts()
-        logger.info("\nFinal Recommendation Distribution:")
-        for rec_type, count in dist.items():
-            logger.info(f"  - {rec_type}: {count}")
+        logger.info(
+            f"✅ Infrastructure Recommendations saved ({len(master)} rows)"
+        )
 
+        logger.info("\nFinal Recommendation Distribution:")
+        for k, v in master['Recommendation'].value_counts().items():
+            logger.info(f"  - {k}: {v}")
+
+    # -------------------------------------------------------------------------
     def run(self):
         self.generate_recommendations()
         logger.info("Recommendation Engine Completed Successfully.")
+
 
 if __name__ == "__main__":
     Recommender().run()
