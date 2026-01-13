@@ -24,10 +24,10 @@ class Recommender:
     """
     Infrastructure Recommendation Engine.
 
-    Design philosophy:
-    - Use relative growth & pressure signals, not absolute forecasts
-    - Convert signals into a single Infrastructure Demand Score
-    - Map score to actionable infrastructure labels
+    Philosophy:
+    - Rank regions RELATIVELY using a composite demand score
+    - Convert scores into percentile-based infrastructure categories
+    - Add biometric capability flags independently of center type
     """
 
     def __init__(self):
@@ -54,12 +54,12 @@ class Recommender:
             return enrol_avg, demo_avg, bio_avg
 
         except FileNotFoundError as e:
-            logger.error(f"Cannot find forecast files: {e}")
+            logger.error(f"Forecast files missing: {e}")
             return None, None, None
 
     # -------------------------------------------------------------------------
     def load_historical_averages(self):
-        logger.info("Loading Historical Averages...")
+        logger.info("Loading historical 6-month averages...")
 
         tasks = [
             ('enrolment_features.csv', 'total_enrolment', 'prev_avg_enrolment'),
@@ -67,30 +67,30 @@ class Recommender:
             ('biometric_features.csv', 'total_biometric', 'prev_avg_biometric')
         ]
 
-        hist_dfs = []
-        for feat_file, val_col, new_col in tasks:
+        results = []
+        for feat_file, val_col, out_col in tasks:
             path = os.path.join(self.features_dir, feat_file)
             if os.path.exists(path):
                 df = pd.read_csv(path)
                 df['month'] = pd.to_datetime(df['month'])
-                last_vals = (
+                avg_df = (
                     df.sort_values(['state', 'district', 'month'])
                       .groupby(['state', 'district'])
                       .tail(6)
                       .groupby(['state', 'district'])[val_col]
                       .mean()
                       .reset_index()
-                      .rename(columns={val_col: new_col})
+                      .rename(columns={val_col: out_col})
                 )
-                hist_dfs.append(last_vals)
+                results.append(avg_df)
             else:
-                hist_dfs.append(None)
+                results.append(None)
 
-        return hist_dfs
+        return results
 
     # -------------------------------------------------------------------------
     def generate_recommendations(self):
-        logger.info("Generating Infrastructure Recommendations (Score-Based)...")
+        logger.info("Generating Infrastructure Recommendations (Final Logic)...")
 
         enrol_df, demo_df, bio_df = self.load_forecasts()
         if enrol_df is None:
@@ -111,33 +111,29 @@ class Recommender:
         master = master.fillna(0)
 
         # ---------------------------------------------------------------------
-        # Score Computation (CORE CHANGE)
+        # 1️⃣ SCORE COMPUTATION
         # ---------------------------------------------------------------------
 
-        # 1. Growth score (forecast vs historical)
+        # Growth signal (forecast vs recent history)
         master['growth_score'] = (
             (master['avg_enrolment'] - master['prev_avg_enrolment']) /
             master['prev_avg_enrolment'].replace(0, np.nan)
         ).replace([np.inf, -np.inf], 0).fillna(0)
 
-        # 2. Update pressure score
+        # Update pressure signal
         total_updates = master['avg_demographic'] + master['avg_biometric']
-        master['update_pressure_score'] = (
-            total_updates / (master['avg_enrolment'] + 1)
-        )
+        master['update_pressure_score'] = total_updates / (master['avg_enrolment'] + 1)
 
-        # 3. Biometric stress score
-        master['biometric_stress_score'] = (
-            master['avg_biometric'] / (total_updates + 1)
-        )
+        # Biometric stress signal
+        master['biometric_stress_score'] = master['avg_biometric'] / (total_updates + 1)
 
-        # Normalize scores (0–1 range)
+        # Normalize all scores (relative ranking)
         for col in ['growth_score', 'update_pressure_score', 'biometric_stress_score']:
             max_val = master[col].abs().max()
             if max_val > 0:
                 master[col] = master[col] / max_val
 
-        # Infrastructure Demand Score (weighted)
+        # Composite Infrastructure Demand Score
         master['infra_demand_score'] = (
             0.4 * master['growth_score'] +
             0.3 * master['update_pressure_score'] +
@@ -145,28 +141,41 @@ class Recommender:
         )
 
         # ---------------------------------------------------------------------
-        # Score → Recommendation Mapping
+        # 2️⃣ PERCENTILE-BASED CATEGORY MAPPING (CRITICAL FIX)
         # ---------------------------------------------------------------------
-        def map_recommendation(row):
-            score = row['infra_demand_score']
+        p20 = master['infra_demand_score'].quantile(0.20)
+        p40 = master['infra_demand_score'].quantile(0.40)
+        p60 = master['infra_demand_score'].quantile(0.60)
+        p80 = master['infra_demand_score'].quantile(0.80)
 
-            if score < 0.2:
+        def map_recommendation(score):
+            if score < p20:
                 return "Mobile/Camp-Mode Point"
-            if score < 0.4:
+            if score < p40:
                 return "Update-Only Center"
-            if score < 0.6:
+            if score < p60:
                 return "Enrolment-Centric Center"
-            if score < 0.8:
+            if score < p80:
                 return "Overall Average Activities"
+            return "Overall High Activities"
 
-            return "Overall High Activities + Advanced Biometric"
+        master['Recommendation'] = master['infra_demand_score'].apply(map_recommendation)
 
-        master['Recommendation'] = master.apply(map_recommendation, axis=1)
+        # ---------------------------------------------------------------------
+        # 3️⃣ BIOMETRIC CAPABILITY OVERRIDE (ADDITIVE, NOT REPLACEMENT)
+        # ---------------------------------------------------------------------
+        def add_biometric_flag(row):
+            if row['prev_avg_biometric'] >= 10000:
+                return row['Recommendation'] + " + Advanced Biometric Infrastructure Needed"
+            return row['Recommendation']
 
+        master['Recommendation'] = master.apply(add_biometric_flag, axis=1)
+
+        # ---------------------------------------------------------------------
+        # OUTPUT
+        # ---------------------------------------------------------------------
         master.to_csv(self.output_file, index=False)
-        logger.info(
-            f"✅ Infrastructure Recommendations saved ({len(master)} rows)"
-        )
+        logger.info(f"✅ Final Recommendations saved ({len(master)} rows)")
 
         logger.info("\nFinal Recommendation Distribution:")
         for k, v in master['Recommendation'].value_counts().items():
