@@ -29,9 +29,8 @@ def load_pin_reference(pin_ref_file: Path):
     return ref[["pincode", "district", "state"]]
 
 
-
 # =========================
-# Apply normalization
+# Apply normalization (UPDATED)
 # =========================
 def normalize_geo(df: pd.DataFrame, pin_ref: pd.DataFrame) -> pd.DataFrame:
     pin_to_district = pin_ref.set_index("pincode")["district"]
@@ -39,15 +38,45 @@ def normalize_geo(df: pd.DataFrame, pin_ref: pd.DataFrame) -> pd.DataFrame:
 
     df["pincode"] = df["pincode"].astype(str).str.zfill(6)
 
-    df["district"] = df["pincode"].map(pin_to_district)
-    df["state"] = df["pincode"].map(pin_to_state)
+    # --- Preserve raw geography BEFORE overwrite ---
+    df["district_raw"] = df.get("district")
+    df["state_raw"] = df.get("state")
 
+    # --- PIN-based mapping ---
+    district_pin = df["pincode"].map(pin_to_district)
+    state_pin = df["pincode"].map(pin_to_state)
+
+    # --- Raw fallback (normalized text) ---
+    district_raw = (
+        df["district_raw"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .replace({"": None, "NAN": None})
+    )
+
+    state_raw = (
+        df["state_raw"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .replace({"": None, "NAN": None})
+    )
+
+    # --- Final resolved geography (PIN → fallback) ---
+    df["district"] = district_pin.combine_first(district_raw)
+    df["state"] = state_pin.combine_first(state_raw)
+
+    # --- Mapping status ---
     df["geo_mapping_status"] = df["district"].notna().map(
         {True: "MAPPED", False: "UNMAPPED"}
     )
 
+    # --- Final safety fallback ---
     df["district"] = df["district"].fillna("UNKNOWN")
     df["state"] = df["state"].fillna("UNKNOWN")
 
-    return df
+    # Cleanup helper columns
+    df.drop(columns=["district_raw", "state_raw"], inplace=True)
 
+    return df
