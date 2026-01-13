@@ -50,3 +50,4 @@ def normalize_geo(df: pd.DataFrame, pin_ref: pd.DataFrame) -> pd.DataFrame:
     df["state"] = df["state"].fillna("UNKNOWN")
 
     return df
+
