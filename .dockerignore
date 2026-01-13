@@ -1,27 +1,48 @@
-# Node.js Docker Ignore File
-
-# Node modules
-node_modules/
-
-# Logs
-npm-debug.log
-
 # Git
-.git/
+.git
+.gitignore
+.gitattributes
 
-# Environment variables
-.env
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
 
-# Coverage reports
-coverage/
-
-# Distribution files
- dist/
-build/
-
-# macOS specific
-.DS_Store
-
-# IDE specific
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend
+dashboard/
+node_modules/

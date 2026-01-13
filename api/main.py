@@ -62,6 +62,11 @@ def read_root():
         "version": "1.0.0"
     }
 
+@app.get("/api/health")
+def health_check():
+    """Health check endpoint for Docker and monitoring."""
+    return {"status": "healthy"}
+
 @app.get("/api/meta")
 def get_meta():
     """Returns metadata about the available data (last update, row counts)."""
