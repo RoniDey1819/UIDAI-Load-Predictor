@@ -33,7 +33,7 @@ class Recommender:
     def __init__(self):
         self.forecasts_dir = os.path.join(settings.DATA_DIR, "forecasts")
         self.features_dir = settings.FEATURES_DATA_DIR
-        self.reference_file = os.path.join(settings.DATA_DIR, "reference", "pin_district.csv")
+        self.reference_file = os.path.join(settings.DATA_DIR, "reference", "pin_district_fixed.csv")
         self.output_file = os.path.join(settings.DATA_DIR, "recommendations.csv")
 
     # -------------------------------------------------------------------------

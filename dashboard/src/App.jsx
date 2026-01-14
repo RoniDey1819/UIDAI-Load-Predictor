@@ -113,66 +113,71 @@ function App() {
         </div>
       </header>
 
-      <div className="dashboard-controls">
-        <div className="filter-group">
-          <label>Strategic Region Selection</label>
-          <div className="select-row">
-            <select value={selectedState} onChange={(e) => setSelectedState(e.target.value)}>
-              <option value="">Select State (National Overview)</option>
-              {states.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+      <div className="top-grid-reorganized">
+        <div className="dashboard-controls-section">
+          <div className="section-header no-border mb-4">
+            <h2>Strategic Region Selection</h2>
+          </div>
+          <div className="dashboard-controls-compact">
+            <div className="filter-group">
+              <label>State Scope</label>
+              <select value={selectedState} onChange={(e) => setSelectedState(e.target.value)}>
+                <option value="">Select State</option>
+                {states.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
 
-            <select value={selectedDistrict} onChange={(e) => setSelectedDistrict(e.target.value)} disabled={!selectedState}>
-              <option value="">All Districts in {selectedState || '...'}</option>
-              {districts.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <div className="filter-group mt-4">
+              <label>District Detail</label>
+              <select value={selectedDistrict} onChange={(e) => setSelectedDistrict(e.target.value)} disabled={!selectedState}>
+                <option value="">All Districts in {selectedState || '...'}</option>
+                {districts.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
 
-            <button onClick={clearFilters} className="btn-clear group">
-              <span className="group-hover:rotate-180 transition-transform duration-500">🔄</span>
-              Reset Perspective
-            </button>
           </div>
         </div>
+
+        <section className="section recs-section-top">
+          <div className="section-header">
+            <h2>Machine Deployment & Infrastructure Roadmap</h2>
+            <span className="badge badge-blue">{recommendations.length} Districts Analyzed</span>
+          </div>
+          <div className="recs-grid-compact">
+            {selectedState && selectedDistrict && recommendations.length > 0 ? (
+              recommendations.slice(0, 1).map((rec, idx) => (
+                <RecommendationCard key={idx} recommendation={rec} />
+              ))
+            ) : (
+              <div className="empty-state-compact">
+                <div className="text-2xl mb-2">🗺️</div>
+                {selectedState && !selectedDistrict
+                  ? "Select a District to view infrastructure roadmap."
+                  : "Select State and District to generate scaling plans."}
+              </div>
+            )}
+          </div>
+        </section>
       </div>
 
-      <main className="dashboard-grid">
-        <div className="details-grid">
-          <section className="section charts-section">
-            <div className="section-header">
-              <h2>Predictive Load Trajectories</h2>
-              <span className="location-tag">
-                {selectedDistrict ? `Focus: ${selectedDistrict}` : (selectedState ? `Scope: ${selectedState}` : 'Pending Regional Input')}
-              </span>
+      <main className="dashboard-main-content">
+        <section className="section charts-section-full">
+          <div className="section-header">
+            <h2>Predictive Load Trajectories</h2>
+            <span className="location-tag">
+              {selectedDistrict ? `Focus: ${selectedDistrict}` : (selectedState ? `Scope: ${selectedState}` : 'Pending Regional Input')}
+            </span>
+          </div>
+          <div className="charts-container-horizontal">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <ForecastChart data={enrolmentData} type="enrolment" title="Enrolment Trend" />
+              <ForecastChart data={demographicData} type="demographic" title="Demographic Drift" />
+              <ForecastChart data={biometricData} type="biometric" title="Biometric Security" />
             </div>
-            <div className="charts-container">
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <ForecastChart data={enrolmentData} type="enrolment" title="New Enrolment (Projected)" />
-                <ForecastChart data={demographicData} type="demographic" title="Demographic Drift" />
-              </div>
-              <ForecastChart data={biometricData} type="biometric" title="Biometric Security Updates" />
-            </div>
-          </section>
+          </div>
+        </section>
 
-          <section className="section recs-section">
-            <div className="section-header">
-              <h2>Machine Deployment & Infrastructure Roadmap</h2>
-              <span className="badge badge-blue">{recommendations.length} Districts Analyzed</span>
-            </div>
-            <div className="recs-grid">
-              {recommendations.slice(0, 8).map((rec, idx) => (
-                <RecommendationCard key={idx} recommendation={rec} />
-              ))}
-              {recommendations.length === 0 && (
-                <div className="empty-state">
-                  <div className="text-4xl mb-4">🗺️</div>
-                  Please select a State or District to generate behavioral-aware infrastructure scaling plans.
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <div className="map-wrapper mt-8">
+        <div className="map-wrapper-full mt-8">
           <HighDemandMap recommendations={allRecommendations} />
         </div>
       </main>
