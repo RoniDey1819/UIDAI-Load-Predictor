@@ -27,7 +27,7 @@ function App() {
   useEffect(() => {
     getStates()
       .then(data => {
-        setStates(data);
+        setStates(data.filter(s => s && s.toString().toUpperCase() !== 'NAN'));
         setApiStatus('online');
       })
       .catch(err => {
@@ -40,7 +40,7 @@ function App() {
   // Load Districts when State changes
   useEffect(() => {
     if (selectedState) {
-      getDistricts(selectedState).then(setDistricts);
+      getDistricts(selectedState).then(data => setDistricts(data.filter(d => d && d.toString().toUpperCase() !== 'NAN')));
       setSelectedDistrict('');
     } else {
       setDistricts([]);
@@ -177,7 +177,7 @@ function App() {
           </div>
         </section>
 
-        <div className="map-wrapper-full mt-8">
+        <div className="map-wrapper-full mt-4">
           <HighDemandMap recommendations={allRecommendations} />
         </div>
       </main>
