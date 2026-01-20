@@ -2,7 +2,7 @@
 
 A production-grade predictive analytics and forecasting system for UIDAI Aadhaar infrastructure planning. This system forecasts demand for enrolments and updates (demographic and biometric) at the district level and generates automated infrastructure scaling recommendations.
 
-## 🚀 Key Features
+##  Key Features
 
 - **Domain-Specific Forecasting**: Independent SARIMA/ARIMA models for Enrolment, Demographic, and Biometric datasets.
 - **Interactive Dashboard**: Modern React-based interface with Plotly.js for dynamic visualization.
@@ -10,7 +10,7 @@ A production-grade predictive analytics and forecasting system for UIDAI Aadhaar
 - **Infrastructure Engine**: Automated recommendation system for Aadhaar center deployment.
 - **RESTful API**: High-performance FastAPI backend serving real-time analytics.
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 UIDAI Load Predictor/
@@ -40,7 +40,7 @@ UIDAI Load Predictor/
 └── run_dashboard.bat           # One-click Launcher (API + Dashboard)
 ```
 
-## 🛠️ Installation
+##  Installation
 
 ### Prerequisites
 - Python 3.10+
@@ -66,7 +66,7 @@ This will start:
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 
-## 🏃 Usage
+##  Usage
 
 
 ### Running the Data Pipeline
@@ -84,21 +84,21 @@ The easiest way to start both the API and the Web UI is via the launcher:
 - **Web UI**: `http://localhost:5173`
 - **API Docs**: `http://localhost:8000/docs`
 
-## 📊 Dashboard Highlights
+##  Dashboard Highlights
 
 - **Interactive Heatmap**: Visualizes infrastructure pressure across districts. Click any cell to drill down.
 - **Dynamic Forecast Charts**: Explore 6-month predictions with zoom/pan capabilities.
 - **Infrastructure Plans**: View recommended scaling actions for selected districts based on biometric/enrolment load.
 - **Region Filtering**: Easily toggle between national views, state rankings, and specific district trends.
 
-## ⚖️ Architectural Constraints
-⚠️ **Strict Domain Separation**: As per system requirements, data from Enrolment, Demographic, and Biometric domains are processed through entirely independent ML pipelines. Data is combined **exclusively** at the final recommendation layer to ensure unbiased forecasting models.
+##  Architectural Constraints
+ **Strict Domain Separation**: As per system requirements, data from Enrolment, Demographic, and Biometric domains are processed through entirely independent ML pipelines. Data is combined **exclusively** at the final recommendation layer to ensure unbiased forecasting models.
 
-## 🏗️ Technology Stack
+##  Technology Stack
 - **AI/ML**: Statsmodels (SARIMA/ARIMA), Pandas, NumPy
 - **Backend**: FastAPI, Uvicorn
 - **Frontend**: React 18, Vite, Plotly.js, Axios
 - **Orchestration**: Python-based subprocess management
 
-## 📜 License
+##  License
 Developed for the UIDAI Aadhaar Hackathon analytics challenge.
