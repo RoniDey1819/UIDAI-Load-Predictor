@@ -5,16 +5,26 @@ echo    UIDAI Load Predictor - Operational Dashboard
 echo ===================================================
 echo.
 
-:: 1. Dependency Audit
-echo [1/3] Verifying environment...
+:: 1. Environment Audit
+echo [1/4] Verifying environment...
 if not exist "dashboard\node_modules" (
     echo [!] "node_modules" not found in dashboard folder.
     echo [!] Running "npm install" first...
     cd dashboard && call npm install && cd ..
 )
 
-:: 2. Port Sanitization
-echo [2/3] Cleaning up active server processes...
+:: 2. Data Pipeline Execution
+echo [2/4] Running Data Processing Pipeline...
+echo - This may take a moment (Ingestion, Cleaning, Forecasting)...
+python run_pipeline.py
+if %ERRORLEVEL% NEQ 0 (
+    echo [!] Data Pipeline failed. Services will not start.
+    pause
+    exit /b %ERRORLEVEL%
+)
+
+:: 3. Port Sanitization
+echo [3/4] Cleaning up active server processes...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8000 ^| findstr LISTENING') do (
     taskkill /F /PID %%a >nul 2>&1
 )
@@ -22,8 +32,8 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :5173 ^| findstr LISTENING') 
     taskkill /F /PID %%a >nul 2>&1
 )
 
-:: 3. Strategic Service Launch
-echo [3/3] Launching Backend ^& Frontend Services...
+:: 4. Strategic Service Launch
+echo [4/4] Launching Backend ^& Frontend Services...
 
 echo - Initializing Analytical Engine (Backend)...
 start "UIDAI-Backend" /min cmd /k "python api/main.py"

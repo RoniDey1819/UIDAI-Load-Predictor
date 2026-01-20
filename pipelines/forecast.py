@@ -28,58 +28,68 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 # Helper: trend-based forecasting for one district
 # -----------------------------------------------------------------------------
+def predict_next_month(y_history, global_growth, growth_bounds):
+    """
+    Predicts the next single value using a sliding window and hierarchical shrinkage.
+    """
+    n = len(y_history)
+    
+    # Use a sliding window of recent data (e.g., last 6-12 months)
+    # If we have enough data, focus on the last 12 points to capture recent shifts
+    window_size = 12
+    y_window = y_history[-window_size:]
+    nw = len(y_window)
+
+    # -----------------------------
+    # Step 1: Local trend estimation
+    # -----------------------------
+    if nw >= 3:
+        x = np.arange(nw)
+        slope, _ = np.polyfit(x, y_window, 1)
+        # Avoid division by zero
+        local_growth = slope / max(y_window.mean(), 1)
+    else:
+        local_growth = 0.0
+
+    # -----------------------------
+    # Step 2: Hierarchical shrinkage
+    # -----------------------------
+    # Confidence in local trend grows with total history (n)
+    alpha = min(1.0, max(0.0, (n - 1) / 6))
+    growth_rate = alpha * local_growth + (1 - alpha) * global_growth
+
+    # -----------------------------
+    # Step 3: Data-driven safety bounds
+    # -----------------------------
+    lower, upper = growth_bounds
+    growth_rate = np.clip(growth_rate, lower, upper)
+
+    # -----------------------------
+    # Step 4: Step-ahead prediction
+    # -----------------------------
+    last_val = y_history[-1]
+    prediction = last_val * (1 + growth_rate)
+    return max(0, prediction)
+
+
 def fit_single_district(group_data, horizon, value_col, global_growth, growth_bounds):
     """
-    Hierarchical trend-based, bounded extrapolation for a single district.
-
-    Math intuition (jury-safe):
-    - Local trend is estimated using a simple linear model: y = a + b·t
-    - Growth rate ≈ b / mean(y)
-    - For short histories, local estimates are noisy → we shrink toward
-      a global (cross-region) growth rate
+    Recursive sliding window forecasting for a single district.
     """
     (state, district), group = group_data
 
     try:
         group = group.sort_values("month")
-        y = group[value_col].values
-        n = len(y)
-
-        # -----------------------------
-        # Step 1: Local trend estimation
-        # -----------------------------
-        if n >= 3:
-            # Linear regression on time index
-            x = np.arange(n)
-            slope, _ = np.polyfit(x, y, 1)
-            local_growth = slope / max(y.mean(), 1)
-        else:
-            local_growth = 0.0
-
-        # -----------------------------
-        # Step 2: Hierarchical shrinkage
-        # -----------------------------
-        # Gradually trust local trend as data increases
-        # n=1 → 0% local, n=7+ → ~100% local
-        alpha = min(1.0, max(0.0, (n - 1) / 6))
-        growth_rate = alpha * local_growth + (1 - alpha) * global_growth
-
-        # -----------------------------
-        # Step 3: Data-driven safety bounds
-        # -----------------------------
-        lower, upper = growth_bounds
-        growth_rate = np.clip(growth_rate, lower, upper)
-
-        # -----------------------------
-        # Step 4: Forward extrapolation
-        # -----------------------------
-        last_val = y[-1]
+        y_history = list(group[value_col].values)
+        
         preds = []
-        current = last_val
-
+        
+        # Recursive Step-by-Step Prediction
         for _ in range(horizon):
-            current = current * (1 + growth_rate)
-            preds.append(max(0, current))
+            next_val = predict_next_month(np.array(y_history), global_growth, growth_bounds)
+            preds.append(next_val)
+            # Add prediction back to history for the next iteration (Sliding Window)
+            y_history.append(next_val)
 
         # -----------------------------
         # Output formatting
@@ -99,7 +109,8 @@ def fit_single_district(group_data, horizon, value_col, global_growth, growth_bo
             for date, val in zip(future_dates, preds)
         ]
 
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error forecasting district {district} in {state}: {str(e)}")
         return []
 
 
