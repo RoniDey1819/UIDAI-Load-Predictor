@@ -14,30 +14,36 @@ A production-grade predictive analytics and forecasting system for UIDAI Aadhaar
 
 ```
 UIDAI Load Predictor/
-├── data/
-│   ├── raw/                    # Source CSV data
-│   ├── processed/              # Cleaned & aggregated datasets
-│   ├── features/               # Engineered time-series features
-│   └── forecasts/              # SARIMA/ARIMA prediction outputs
-├── pipelines/
-│   ├── ingest.py               # Data ingestion
-│   ├── clean.py                # Data cleaning & validation
-│   ├── aggregate.py            # Monthly domain-specific aggregation
-│   ├── feature_engineering.py  # Feature calculation (seasonality, spikes)
-│   ├── forecast.py             # SARIMA/ARIMA forecasting engine
-│   ├── recommend.py            # Infrastructure recommendation logic
-│   └── validate.py             # Data integrity & schema validator
-├── api/
-│   └── main.py                 # FastAPI backend implementation
+├── api/                        # FastAPI backend
+│   └── main.py                 # REST API endpoints & server setup
+├── config/                     # Configuration
+│   └── settings.py             # Global paths and constants
 ├── dashboard/                  # React + Vite frontend application
-│   └── src/
-│       ├── components/         # Interactive UI components (Heatmap, Charts)
-│       ├── services/           # Backend API integration service
-│       └── App.jsx             # Main dashboard logic & layout
-├── config/
-│   └── settings.py             # Global project configuration
+│   ├── src/
+│   │   ├── components/         # Interactive UI (Heatmap, Charts, Cards)
+│   │   ├── services/           # API integration (Axios)
+│   │   └── App.jsx             # Main application logic
+│   └── package.json            # Frontend dependencies
+├── data/                       # Data storage (hierarchical)
+│   ├── raw/                    # Original source CSV files
+│   ├── processed/              # Cleaned & aggregated datasets
+│   ├── features/               # Engineered time-series data
+│   ├── forecasts/              # SARIMA/ARIMA prediction outputs
+│   ├── reference/              # Mapping files (e.g., coordinates)
+│   └── recommendations.csv     # Final generated infrastructure plans
+├── pipelines/                  # Core logic & ML Pipelines
+│   ├── ingest.py               # Data ingestion
+│   ├── clean/                  # Data cleaning & validation
+│   ├── aggregate.py            # Monthly domain aggregation
+│   ├── feature_engineering.py  # Trend & spike calculations
+│   ├── forecast.py             # SARIMA/ARIMA modeling engine
+│   ├── recommend.py            # Infrastructure recommendation logic
+│   └── validate.py             # Data integrity checks
+├── Dockerfile                  # Containerization for deployment
+├── docker-compose.yml          # Multi-container orchestration
+├── requirements.txt            # Python dependencies
 ├── run_pipeline.py             # Master ETL Pipeline Orchestrator
-└── run_dashboard.bat           # One-click Launcher (API + Dashboard)
+└── run_dashboard.bat           # One-click launcher for Windows
 ```
 
 ##  Installation
