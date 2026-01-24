@@ -93,7 +93,7 @@ function App() {
     <div className="app-container">
       <header className="header">
         <div className="header-content">
-          <h1>UIDAI Load Predictor</h1>
+          <h1>Sugam Aadhaar</h1>
           <p className="subtitle">Advanced Infrastructure Scaling & Predictive Analytics Dashboard</p>
         </div>
         <div className="header-stats flex flex-col items-end">
